@@ -1,40 +1,70 @@
-import altair as alt
-import numpy as np
-import pandas as pd
+# my_app.py
 import streamlit as st
+import pandas as pd
+import requests
+import logging
 
-"""
-# Welcome to Streamlit!
+# Enable logging
+logging.basicConfig(level=logging.DEBUG)
 
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:.
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
+API_KEY = "put here your API key"
+# Define the base URLs for the different API endpoints
+KPI_ENG_URL = "https://api.myptv.com/kpieng/v1/instance/all"
+KPI_HISTORICAL_URL = "https://api.myptv.com/kpistats/v1/historical/result/by-kpi-id"
+KPI_24HOURS_URL = "https://api.myptv.com/kpieng/v1/result/by-kpi-id"
 
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
 
-num_points = st.slider("Number of points in spiral", 1, 10000, 1100)
-num_turns = st.slider("Number of turns in spiral", 1, 300, 31)
+# Define headers for the API requests
+HEADERS = {
+    "apiKey": API_KEY,
+    "Accept": "*/*",
+    "Connection": "keep-alive"
+}
 
-indices = np.linspace(0, 1, num_points)
-theta = 2 * np.pi * num_turns * indices
-radius = indices
+def extract_timetostart(param_dict):
+    try:
+        return param_dict.get('parameters', {}).get('timetostart', None)
+    except AttributeError:
+        return None
 
-x = radius * np.cos(theta)
-y = radius * np.sin(theta)
+# Fetch all KPI definitions
+def fetch_all_kpis(api_key):
+    try:
+        print("Fetching all KPI definitions...")
+        HEADERS["apiKey"]=api_key
+        response = requests.get(KPI_ENG_URL, headers=HEADERS)
+        response.raise_for_status()  # Raise an exception if the response status code is not 200
+        kpi_data = response.json()
+        kpi_df = pd.DataFrame(kpi_data)
+        kpi_df['timetostart'] = kpi_df['kpiInstanceParameters'].apply(extract_timetostart)
+        print(f"Fetched {len(kpi_df)} KPIs.")
+        print(kpi_df.head())
+        return kpi_df
+    except requests.RequestException as e:
+        st.error(f"Error fetching data: {e}")
+        return None
 
-df = pd.DataFrame({
-    "x": x,
-    "y": y,
-    "idx": indices,
-    "rand": np.random.randn(num_points),
-})
+def main():
+    st.title("API Data Table")
 
-st.altair_chart(alt.Chart(df, height=700, width=700)
-    .mark_point(filled=True)
-    .encode(
-        x=alt.X("x", axis=None),
-        y=alt.Y("y", axis=None),
-        color=alt.Color("idx", legend=None, scale=alt.Scale()),
-        size=alt.Size("rand", legend=None, scale=alt.Scale(range=[1, 150])),
-    ))
+    # Text input for API key
+    api_key = st.text_input("Enter your API key:")
+
+    # Button to fetch data
+    if st.button("Fetch Data"):
+        if api_key:
+            # Fetch data from the API
+            API_KEY = api_key
+            data = fetch_all_kpis(api_key)
+
+            if data is not None:
+
+                                #st.write(data.dtypes)
+                # Display the data in a table
+                st.dataframe(data)
+        else:
+            st.warning("Please enter an API key.")
+
+if __name__ == "__main__":
+    main()
+
