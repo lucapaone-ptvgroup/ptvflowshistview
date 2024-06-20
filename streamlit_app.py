@@ -1,4 +1,3 @@
-# my_app.py
 import streamlit as st
 import pandas as pd
 import requests
@@ -91,7 +90,6 @@ def round_to_nearest_5min(timestamp):
     new_minute = (dt.minute // 5) * 5
     return dt.replace(minute=new_minute, second=0, microsecond=0)
 
-
 def main():
     data = None
     st.title("PTV FLOWS data analysis")
@@ -152,19 +150,42 @@ def main():
                     data = fetch_historical_stats(kpi_id)
                     if(data is not None):
                         historical_stats_data = pd.concat([historical_stats_data, data], ignore_index=True)
+                
                 st.write("Historical Stats Data:")
                 st.dataframe(historical_stats_data)
+
+                # Group historical data and create groupedHistoricalData
+                groupedHistoricalData = historical_stats_data.groupby(
+                    ['kpiId', 'RoundedTimeStamp']
+                ).agg(
+                    {
+                        'defaultValue': 'sum',
+                        'value': 'sum',
+                        'averageValue': 'sum',
+                        'unusualValue': 'sum',
+                        'progressive': 'max'
+                    }
+                ).reset_index()
+
+                st.write("Grouped Historical Stats Data:")
+                st.dataframe(groupedHistoricalData)
 
                 loading_txt.empty()  # Remove the loading text
                 
                 comparison = None
                 # Compare quality of forecasted data with historical data
-                if not last_24_hours_data.empty and not historical_stats_data.empty:
+                if not last_24_hours_data.empty and not groupedHistoricalData.empty:
                     print("Comparing forecasted data with historical data...")
-                    # Perform inner join on 'kpiId' and 'ForecastedTimestamp' from merged_data with 'kpiId' and 'RoundedTimeStamp' from historical_stats
-                    comparison = pd.merge(last_24_hours_data, historical_stats_data, left_on=['kpiId', 'ForecastedTimestamp'], right_on=['kpiId', 'RoundedTimeStamp'], how='inner')
+                    # Perform inner join on 'kpiId' and 'ForecastedTimestamp' from merged_data with 'kpiId' and 'RoundedTimeStamp' from groupedHistoricalData
+                    comparison = pd.merge(
+                        last_24_hours_data, 
+                        groupedHistoricalData, 
+                        left_on=['kpiId', 'ForecastedTimestamp', 'overallResult.progressive'], 
+                        right_on=['kpiId', 'RoundedTimeStamp', 'progressive'], 
+                        how='inner'
+                    )
                     comparison['AbsDelta'] = (comparison['overallResult.value'] - comparison['value']).abs()
-                    comparison['ErrorPerc'] = (comparison['AbsDelta'] / comparison['overallResult.value']) * 100
+                    comparison['ErrorPerc'] = (comparison['AbsDelta'] / comparison['value']) * 100
                     # Merge to include 'name' from kpi_ids_df in comparison
                     comparison = pd.merge(comparison, kpi_ids_df[['kpiId', 'name']], on='kpiId', how='left')
 
