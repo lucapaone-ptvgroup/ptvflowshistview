@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import logging
+from datetime import datetime, timedelta
 
 # Enable logging
 logging.basicConfig(level=logging.DEBUG)
@@ -31,7 +32,7 @@ def extract_timetostart(param_dict):
 def fetch_all_kpis(api_key):
     try:
         print("Fetching all KPI definitions...")
-        HEADERS["apiKey"]=api_key
+        HEADERS["apiKey"] = api_key
         response = requests.get(KPI_ENG_URL, headers=HEADERS)
         response.raise_for_status()  # Raise an exception if the response status code is not 200
         kpi_data = response.json()
@@ -93,72 +94,91 @@ def round_to_nearest_5min(timestamp):
 
 def main():
     data = None
-    st.title("API Data Table")
-
+    st.title("PTV FLOWS data analysis")
     # Text input for API key
-    api_key = st.text_input("Enter your API key:")
+    api_key_input = st.text_input("Enter your API key:")
+    fetch_KPIdef_button = st.button("Fetch KPI definitions and last data")
+    loading_txt = st.empty()
+    loading_txt.text("...")
 
     # Button to fetch data
-    if st.button("Fetch Data"):
-        if api_key:
+    if fetch_KPIdef_button:
+        if api_key_input:
             # Fetch data from the API
-            API_KEY = api_key
-            kpi_ids_df = fetch_all_kpis(api_key)
+            API_KEY = api_key_input
+            kpi_ids_df = fetch_all_kpis(api_key_input)
 
             if kpi_ids_df is not None:
-
-                                #st.write(data.dtypes)
                 # Display the data in a table
                 st.dataframe(kpi_ids_df)
-                more_data_btn = st.button("Load last 24 hours")
-                if more_data_btn:
-                    #print (kpi_ids_df)
-                    kpi_ids =     kpi_ids_df['kpiId']
+                loading_txt.text("Loading last 24 hours data...")
 
-                    last_24_hours_data = pd.DataFrame()
-                    loading = st.write("...")
-                    '''
-                    for kpi_id in kpi_ids:
-                        loading.write(f"kpi_id {kpi_id}")
-                        data = fetch_last_24_hours_data(kpi_id)
-                        last_24_hours_data = pd.concat([last_24_hours_data, data], ignore_index=True)
+                kpi_ids = kpi_ids_df['kpiId']
+                last_24_hours_data = pd.DataFrame()
 
-                    if 'results' in last_24_hours_data.columns:
-                        #print("Dropping 'results' column from last 24 hours data.")
-                        last_24_hours_data.drop(columns=['results'], inplace=True)
+                for kpi_id in kpi_ids:
+                    loading_txt.text(f"Fetching data for KPI ID: {kpi_id}")
+                    data = fetch_last_24_hours_data(kpi_id)
+                    last_24_hours_data = pd.concat([last_24_hours_data, data], ignore_index=True)
 
-                    print(f"Columns in last_24_hours_data: {last_24_hours_data.columns.tolist()}")
+                if 'results' in last_24_hours_data.columns:
+                    last_24_hours_data.drop(columns=['results'], inplace=True)
 
-                    # Merge to include 'timetostart' in last_24_hours_data
-                    merged_data = last_24_hours_data.merge(kpi_ids_df[['kpiId', 'timetostart']], on='kpiId', how='left')
+                print(f"Columns in last_24_hours_data: {last_24_hours_data.columns.tolist()}")
 
-                    # Check the merged data
-                    print("Merged DataFrame with 'timetostart':")
-                    print(merged_data.head())
+                # Merge to include 'timetostart' in last_24_hours_data
+                merged_data = last_24_hours_data.merge(kpi_ids_df[['kpiId', 'timetostart']], on='kpiId', how='left')
 
-                    # Now you can use the 'timetostart' in your calculations
-                    # For example, adding 'timetostart' to 'RoundedTimeStamp'
-                    merged_data['ForecastedTimestamp'] = merged_data.apply(
-                        lambda row: row['RoundedTimeStamp'] + timedelta(seconds=row['timetostart']) , axis=1
-                    )
+                # Check the merged data
+                print("Merged DataFrame with 'timetostart':")
+                print(merged_data.head())
 
-                    last_24_hours_data = merged_data
-                    print("Last 24 hours data head:")
-                    print(last_24_hours_data.head())      
-      
+                # Now you can use the 'timetostart' in your calculations
+                # For example, adding 'timetostart' to 'RoundedTimeStamp'
+                merged_data['ForecastedTimestamp'] = merged_data.apply(
+                    lambda row: row['RoundedTimeStamp'] + timedelta(seconds=row['timetostart']), axis=1
+                )
 
-                    # Display additional data tables
-                    st.write("Last 24 Hours Data:")
-                    st.dataframe(last_24_hours_data)
+                last_24_hours_data = merged_data
+                print("Last 24 hours data head:")
+                print(last_24_hours_data.head())      
 
-                    historical_stats_data = fetch_historical_stats(kpi_id)
-                    st.write("Historical Stats Data:")
-                    st.dataframe(historical_stats_data)
-                    '''
+                # Display additional data tables
+                st.write("Last 24 Hours Data:")
+                st.dataframe(last_24_hours_data)
+                historical_stats_data = pd.DataFrame()
+                for kpi_id in kpi_ids:
+                    loading_txt.text(f"Fetching HIST data for KPI ID: {kpi_id}")
+                    data = fetch_historical_stats(kpi_id)
+                    if(data is not None):
+                        historical_stats_data = pd.concat([historical_stats_data, data], ignore_index=True)
+                st.write("Historical Stats Data:")
+                st.dataframe(historical_stats_data)
+
+                loading_txt.empty()  # Remove the loading text
+                
+                comparison = None
+                # Compare quality of forecasted data with historical data
+                if not last_24_hours_data.empty and not historical_stats_data.empty:
+                    print("Comparing forecasted data with historical data...")
+                    # Perform inner join on 'kpiId' and 'ForecastedTimestamp' from merged_data with 'kpiId' and 'RoundedTimeStamp' from historical_stats
+                    comparison = pd.merge(last_24_hours_data, historical_stats_data, left_on=['kpiId', 'ForecastedTimestamp'], right_on=['kpiId', 'RoundedTimeStamp'], how='inner')
+                    comparison['AbsDelta'] = (comparison['overallResult.value'] - comparison['value']).abs()
+                    comparison['ErrorPerc'] = (comparison['AbsDelta'] / comparison['overallResult.value']) * 100
+                    # Merge to include 'name' from kpi_ids_df in comparison
+                    comparison = pd.merge(comparison, kpi_ids_df[['kpiId', 'name']], on='kpiId', how='left')
+
+                    print("Comparison Results:")
+                    print(comparison.head())
+                    st.write("Comparison Results:")
+                    st.dataframe(comparison)
                 else:
-                    st.warning("Nodata?")
+                    warning = "No data available for comparison" 
+                    print(warning)
+                    st.warning(warning)
+
         else:
             st.warning("Please enter an API key.")
+
 if __name__ == "__main__":
     main()
-
