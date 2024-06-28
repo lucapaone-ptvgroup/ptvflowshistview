@@ -163,7 +163,8 @@ def main():
                         'value': 'sum',
                         'averageValue': 'sum',
                         'unusualValue': 'sum',
-                        'progressive': 'max'
+                        'progressive': 'max',
+                        'timeStamp' : 'max'
                     }
                 ).reset_index()
 
