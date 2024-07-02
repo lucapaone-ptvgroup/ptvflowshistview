@@ -99,7 +99,9 @@ def main():
     api_key = st.text_input("Enter your API key:")
 
     # Button to fetch data
-    if st.button("Fetch Data"):
+    fetchKPIdef = st.button("Fetch KPI definitions")
+
+    if fetchKPIdef:
         if api_key:
             # Fetch data from the API
             API_KEY = api_key
@@ -109,8 +111,8 @@ def main():
 
                                 #st.write(data.dtypes)
                 # Display the data in a table
-                st.dataframe(kpi_ids_df)
-                more_data_btn = st.button("Load last 24 hours")
+                kpi_ids_df_gui = st.dataframe(kpi_ids_df)
+                more_data_btn = st.button("Load last 24 hours!")
                 if more_data_btn:
                     #print (kpi_ids_df)
                     kpi_ids =     kpi_ids_df['kpiId']
@@ -159,6 +161,8 @@ def main():
                     st.warning("Nodata?")
         else:
             st.warning("Please enter an API key.")
+    else:
+            st.warning("Please PRESS.")
 if __name__ == "__main__":
     main()
 
