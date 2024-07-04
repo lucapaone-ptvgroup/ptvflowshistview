@@ -7,9 +7,10 @@ from datetime import datetime, timedelta
 logging.basicConfig(level=logging.DEBUG)
 API_KEY = "put here your API key"
 # Define the base URLs for the different API endpoints
-KPI_ENG_URL = "https://api.myptv.com/kpieng/v1/instance/all"
-KPI_HISTORICAL_URL = "https://api.myptv.com/kpistats/v1/historical/result/by-kpi-id"
-KPI_24HOURS_URL = "https://api.myptv.com/kpieng/v1/result/by-kpi-id"
+BASEURL = "api.myptv.com"
+KPI_ENG_URL = f"https://{BASEURL}/kpieng/v1/instance/all"
+KPI_HISTORICAL_URL = f"https://{BASEURL}/kpistats/v1/historical/result/by-kpi-id"
+KPI_24HOURS_URL = f"https://{BASEURL}/kpieng/v1/result/by-kpi-id"
 # Define headers for the API requests
 HEADERS = {
     "apiKey": API_KEY,
