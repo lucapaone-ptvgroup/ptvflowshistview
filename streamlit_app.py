@@ -4,6 +4,8 @@ import requests
 import logging
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 
 # Enable logging
 logging.basicConfig(level=logging.DEBUG)
@@ -98,6 +100,7 @@ def round_to_nearest_5min(timestamp):
     new_minute = (dt.minute // 5) * 5
     return dt.replace(minute=new_minute, second=0, microsecond=0)
 
+
 def create_kpi_chart(comparison_data, kpi_name):
     # Filter data for the selected KPI
     kpi_data = comparison_data[comparison_data['name'] == kpi_name]
@@ -128,6 +131,48 @@ def create_kpi_chart(comparison_data, kpi_name):
         yaxis_title='Value',
         legend_title='Legend'
     )
+    
+    return fig
+
+def create_error_metrics_chart(comparison_data, kpi_name):
+    # Filter data for the selected KPI
+    kpi_data = comparison_data[comparison_data['name'] == kpi_name]
+    
+    # Create the chart with secondary y-axis
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Add AbsDelta values
+    fig.add_trace(
+        go.Scatter(
+            x=kpi_data['ForecastedTimestamp'],
+            y=kpi_data['AbsDelta'],
+            mode='lines+markers',
+            name='Absolute Delta'
+        ),
+        secondary_y=False,
+    )
+    
+    # Add ErrorPerc values
+    fig.add_trace(
+        go.Scatter(
+            x=kpi_data['ForecastedTimestamp'],
+            y=kpi_data['ErrorPerc'],
+            mode='lines+markers',
+            name='Error Percentage'
+        ),
+        secondary_y=True,
+    )
+    
+    # Update layout
+    fig.update_layout(
+        title=f'Error Metrics: {kpi_name}',
+        xaxis_title='Timestamp',
+        legend_title='Legend'
+    )
+    
+    # Set y-axes titles
+    fig.update_yaxes(title_text="Absolute Delta", secondary_y=False)
+    fig.update_yaxes(title_text="Error Percentage (%)", secondary_y=True)
     
     return fig
 
@@ -245,7 +290,6 @@ def main():
                         st.warning(warning)
             else:
                 st.warning("Please enter an API key.")
-
     elif page == 'KPI Analysis':
         st.header("KPI Analysis")
         
@@ -256,9 +300,13 @@ def main():
             # Dropdown to select KPI
             selected_kpi = st.selectbox("Select a KPI", kpi_names)
             
-            # Create and display the chart
-            fig = create_kpi_chart(st.session_state.comparison_data, selected_kpi)
-            st.plotly_chart(fig)
+            # Create and display the KPI evolution chart
+            fig_kpi = create_kpi_chart(st.session_state.comparison_data, selected_kpi)
+            st.plotly_chart(fig_kpi)
+            
+            # Create and display the error metrics chart
+            fig_error = create_error_metrics_chart(st.session_state.comparison_data, selected_kpi)
+            st.plotly_chart(fig_error)
             
             # Display the data table for the selected KPI
             st.subheader(f"Data for {selected_kpi}")
