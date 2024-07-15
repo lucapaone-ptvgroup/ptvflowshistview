@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import logging
 from datetime import datetime, timedelta
+import plotly.graph_objects as go
 
 # Enable logging
 logging.basicConfig(level=logging.DEBUG)
@@ -16,6 +17,10 @@ KPI_24HOURS_URL = f"https://{BASEURL}/kpieng/v1/result/by-kpi-id"
 # Initialize session state for API key
 if 'api_key' not in st.session_state:
     st.session_state.api_key = ""
+if 'comparison_data' not in st.session_state:
+    st.session_state.comparison_data = None
+if 'kpi_ids_df' not in st.session_state:
+    st.session_state.kpi_ids_df = None
 
 # Define headers for the API requests
 def get_headers():
@@ -93,108 +98,174 @@ def round_to_nearest_5min(timestamp):
     new_minute = (dt.minute // 5) * 5
     return dt.replace(minute=new_minute, second=0, microsecond=0)
 
+def create_kpi_chart(comparison_data, kpi_name):
+    # Filter data for the selected KPI
+    kpi_data = comparison_data[comparison_data['name'] == kpi_name]
+    
+    # Create the chart
+    fig = go.Figure()
+    
+    # Add forecasted values
+    fig.add_trace(go.Scatter(
+        x=kpi_data['ForecastedTimestamp'],
+        y=kpi_data['overallResult.value'],
+        mode='lines+markers',
+        name='Forecasted Value'
+    ))
+    
+    # Add actual values
+    fig.add_trace(go.Scatter(
+        x=kpi_data['ForecastedTimestamp'],
+        y=kpi_data['value'],
+        mode='lines+markers',
+        name='Actual Value'
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title=f'KPI Evolution: {kpi_name}',
+        xaxis_title='Timestamp',
+        yaxis_title='Value',
+        legend_title='Legend'
+    )
+    
+    return fig
+
 def main():
-    data = None
     st.title("PTV FLOWS data analysis")
 
-    # Text input for API key with session state
-    api_key_input = st.text_input("Enter your API key:", value=st.session_state.api_key)
-    
-    # Update session state if API key changed
-    if api_key_input != st.session_state.api_key:
-        st.session_state.api_key = api_key_input
+    # Sidebar for navigation
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ('Data Fetch', 'KPI Analysis'))
 
-    fetch_KPIdef_button = st.button("Fetch KPI definitions and last data")
-    loading_txt = st.empty()
-    loading_txt.text("...")
+    if page == 'Data Fetch':
+        st.header("Data Fetch")
+        
+        # Text input for API key with session state
+        api_key_input = st.text_input("Enter your API key:", value=st.session_state.api_key)
+        
+        # Update session state if API key changed
+        if api_key_input != st.session_state.api_key:
+            st.session_state.api_key = api_key_input
 
-    # Button to fetch data
-    if fetch_KPIdef_button:
-        if st.session_state.api_key:
-            # Fetch data from the API
-            kpi_ids_df = fetch_all_kpis()
-            if kpi_ids_df is not None:
-                # Display the data in a table
-                st.dataframe(kpi_ids_df)
-                loading_txt.text("Loading last 24 hours data...")
-                kpi_ids = kpi_ids_df['kpiId']
-                last_24_hours_data = pd.DataFrame()
-                for kpi_id in kpi_ids:
-                    loading_txt.text(f"Fetching data for KPI ID: {kpi_id}")
-                    data = fetch_last_24_hours_data(kpi_id)
-                    last_24_hours_data = pd.concat([last_24_hours_data, data], ignore_index=True)
-                if 'results' in last_24_hours_data.columns:
-                    last_24_hours_data.drop(columns=['results'], inplace=True)
-                print(f"Columns in last_24_hours_data: {last_24_hours_data.columns.tolist()}")
-                # Merge to include 'timetostart' in last_24_hours_data
-                merged_data = last_24_hours_data.merge(kpi_ids_df[['kpiId', 'timetostart']], on='kpiId', how='left')
-                # Check the merged data
-                print("Merged DataFrame with 'timetostart':")
-                print(merged_data.head())
-                # Now you can use the 'timetostart' in your calculations
-                # For example, adding 'timetostart' to 'RoundedTimeStamp'
-                merged_data['ForecastedTimestamp'] = merged_data.apply(
-                    lambda row: row['RoundedTimeStamp'] + timedelta(seconds=row['timetostart']), axis=1
-                )
-                last_24_hours_data = merged_data
-                print("Last 24 hours data head:")
-                print(last_24_hours_data.head())      
-                # Display additional data tables
-                st.write("Last 24 Hours of KPI values:")
-                st.dataframe(last_24_hours_data)
-                historical_stats_data = pd.DataFrame()
-                for kpi_id in kpi_ids:
-                    loading_txt.text(f"Fetching HIST data for KPI ID: {kpi_id}")
-                    data = fetch_historical_stats(kpi_id)
-                    if(data is not None):
-                        historical_stats_data = pd.concat([historical_stats_data, data], ignore_index=True)
-                
-                st.write("Last 23 hours of KPI RECORDED values :")
-                st.dataframe(historical_stats_data)
-                # Group historical data and create groupedHistoricalData
-                groupedHistoricalData = historical_stats_data.groupby(
-                    ['kpiId', 'RoundedTimeStamp']
-                ).agg(
-                    {
-                        'defaultValue': 'sum',
-                        'value': 'sum',
-                        'averageValue': 'sum',
-                        'unusualValue': 'sum',
-                        'progressive': 'max',
-                        'timeStamp' : 'max'
-                    }
-                ).reset_index()
+        fetch_KPIdef_button = st.button("Fetch KPI definitions and last data")
+        loading_txt = st.empty()
+        loading_txt.text("...")
 
-                st.write("Historical Stats Data grouped by kpiId, RoundedTimeStamp:")
-                st.dataframe(groupedHistoricalData)
-                loading_txt.empty()  # Remove the loading text
-                
-                comparison = None
-                # Compare quality of forecasted data with historical data
-                if not last_24_hours_data.empty and not groupedHistoricalData.empty:
-                    print("Comparing forecasted data with historical data...")
-                    # Perform inner join on 'kpiId' and 'ForecastedTimestamp' from merged_data with 'kpiId' and 'RoundedTimeStamp' from groupedHistoricalData
-                    comparison = pd.merge(
-                        last_24_hours_data, 
-                        groupedHistoricalData, 
-                        left_on=['kpiId', 'ForecastedTimestamp', 'overallResult.progressive'], 
-                        right_on=['kpiId', 'RoundedTimeStamp', 'progressive'], 
-                        how='inner'
+        # Button to fetch data
+        if fetch_KPIdef_button:
+            if st.session_state.api_key:
+                # Fetch data from the API
+                kpi_ids_df = fetch_all_kpis()
+                if kpi_ids_df is not None:
+                    st.session_state.kpi_ids_df = kpi_ids_df
+                    # Display the data in a table
+                    st.dataframe(kpi_ids_df)
+                    loading_txt.text("Loading last 24 hours data...")
+                    kpi_ids = kpi_ids_df['kpiId']
+                    last_24_hours_data = pd.DataFrame()
+                    for kpi_id in kpi_ids:
+                        loading_txt.text(f"Fetching data for KPI ID: {kpi_id}")
+                        data = fetch_last_24_hours_data(kpi_id)
+                        last_24_hours_data = pd.concat([last_24_hours_data, data], ignore_index=True)
+                    if 'results' in last_24_hours_data.columns:
+                        last_24_hours_data.drop(columns=['results'], inplace=True)
+                    print(f"Columns in last_24_hours_data: {last_24_hours_data.columns.tolist()}")
+                    # Merge to include 'timetostart' in last_24_hours_data
+                    merged_data = last_24_hours_data.merge(kpi_ids_df[['kpiId', 'timetostart']], on='kpiId', how='left')
+                    # Check the merged data
+                    print("Merged DataFrame with 'timetostart':")
+                    print(merged_data.head())
+                    # Now you can use the 'timetostart' in your calculations
+                    # For example, adding 'timetostart' to 'RoundedTimeStamp'
+                    merged_data['ForecastedTimestamp'] = merged_data.apply(
+                        lambda row: row['RoundedTimeStamp'] + timedelta(seconds=row['timetostart']), axis=1
                     )
-                    comparison['AbsDelta'] = (comparison['overallResult.value'] - comparison['value']).abs()
-                    comparison['ErrorPerc'] = (comparison['AbsDelta'] / comparison['value']) * 100
-                    # Merge to include 'name' from kpi_ids_df in comparison
-                    comparison = pd.merge(comparison, kpi_ids_df[['kpiId', 'name']], on='kpiId', how='left')
-                    print("Comparison Results:")
-                    print(comparison.head())
-                    st.write("Comparison Results x = Forecasted KPI values y = Recorded KPI value:")
-                    st.dataframe(comparison)
-                else:
-                    warning = "No data available for comparison" 
-                    print(warning)
-                    st.warning(warning)
+                    last_24_hours_data = merged_data
+                    print("Last 24 hours data head:")
+                    print(last_24_hours_data.head())      
+                    # Display additional data tables
+                    st.write("Last 24 Hours Data:")
+                    st.dataframe(last_24_hours_data)
+                    historical_stats_data = pd.DataFrame()
+                    for kpi_id in kpi_ids:
+                        loading_txt.text(f"Fetching HIST data for KPI ID: {kpi_id}")
+                        data = fetch_historical_stats(kpi_id)
+                        if(data is not None):
+                            historical_stats_data = pd.concat([historical_stats_data, data], ignore_index=True)
+                    
+                    st.write("Historical Stats Data:")
+                    st.dataframe(historical_stats_data)
+                    # Group historical data and create groupedHistoricalData
+                    groupedHistoricalData = historical_stats_data.groupby(
+                        ['kpiId', 'RoundedTimeStamp']
+                    ).agg(
+                        {
+                            'defaultValue': 'sum',
+                            'value': 'sum',
+                            'averageValue': 'sum',
+                            'unusualValue': 'sum',
+                            'progressive': 'max',
+                            'timeStamp' : 'max'
+                        }
+                    ).reset_index()
+
+                    st.write("Grouped Historical Stats Data:")
+                    st.dataframe(groupedHistoricalData)
+                    loading_txt.empty()  # Remove the loading text
+                    
+                    comparison = None
+                    # Compare quality of forecasted data with historical data
+                    if not last_24_hours_data.empty and not groupedHistoricalData.empty:
+                        print("Comparing forecasted data with historical data...")
+                        # Perform inner join on 'kpiId' and 'ForecastedTimestamp' from merged_data with 'kpiId' and 'RoundedTimeStamp' from groupedHistoricalData
+                        comparison = pd.merge(
+                            last_24_hours_data, 
+                            groupedHistoricalData, 
+                            left_on=['kpiId', 'ForecastedTimestamp', 'overallResult.progressive'], 
+                            right_on=['kpiId', 'RoundedTimeStamp', 'progressive'], 
+                            how='inner'
+                        )
+                        comparison['AbsDelta'] = (comparison['overallResult.value'] - comparison['value']).abs()
+                        comparison['ErrorPerc'] = (comparison['AbsDelta'] / comparison['value']) * 100
+                        # Merge to include 'name' from kpi_ids_df in comparison
+                        comparison = pd.merge(comparison, kpi_ids_df[['kpiId', 'name']], on='kpiId', how='left')
+                        print("Comparison Results:")
+                        print(comparison.head())
+                        st.write("Comparison Results:")
+                        st.dataframe(comparison)
+                        
+                        # Store comparison data in session state
+                        st.session_state.comparison_data = comparison
+                        
+                        st.success("Data fetched successfully!")
+                    else:
+                        warning = "No data available for comparison" 
+                        print(warning)
+                        st.warning(warning)
+            else:
+                st.warning("Please enter an API key.")
+
+    elif page == 'KPI Analysis':
+        st.header("KPI Analysis")
+        
+        if st.session_state.comparison_data is not None and st.session_state.kpi_ids_df is not None:
+            # Get unique KPI names
+            kpi_names = st.session_state.kpi_ids_df['name'].unique()
+            
+            # Dropdown to select KPI
+            selected_kpi = st.selectbox("Select a KPI", kpi_names)
+            
+            # Create and display the chart
+            fig = create_kpi_chart(st.session_state.comparison_data, selected_kpi)
+            st.plotly_chart(fig)
+            
+            # Display the data table for the selected KPI
+            st.subheader(f"Data for {selected_kpi}")
+            kpi_data = st.session_state.comparison_data[st.session_state.comparison_data['name'] == selected_kpi]
+            st.dataframe(kpi_data)
         else:
-            st.warning("Please enter an API key.")
+            st.warning("Please fetch data first on the 'Data Fetch' page.")
 
 if __name__ == "__main__":
     main()
