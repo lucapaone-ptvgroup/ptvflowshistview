@@ -176,6 +176,64 @@ def create_error_metrics_chart(comparison_data, kpi_name):
     
     return fig
 
+
+def calculate_metrics(kpi_data):
+    # Convert 'ForecastedTimestamp' to datetime
+    kpi_data['ForecastedTimestamp'] = pd.to_datetime(kpi_data['ForecastedTimestamp'])
+    
+    # Calculate average values for the entire timeline
+    overall_metrics = {
+        'avg_forecasted': kpi_data['overallResult.value'].mean(),
+        'avg_actual': kpi_data['value'].mean(),
+        'avg_error': kpi_data['ErrorPerc'].mean(),
+    }
+    
+    # Define morning and afternoon periods
+    morning_start = datetime.strptime("06:00", "%H:%M").time()
+    morning_end = datetime.strptime("12:00", "%H:%M").time()
+    afternoon_start = datetime.strptime("12:00", "%H:%M").time()
+    afternoon_end = datetime.strptime("20:00", "%H:%M").time()
+    
+    # Filter data for morning and afternoon
+    morning_data = kpi_data[(kpi_data['ForecastedTimestamp'].dt.time >= morning_start) & 
+                            (kpi_data['ForecastedTimestamp'].dt.time < morning_end)]
+    afternoon_data = kpi_data[(kpi_data['ForecastedTimestamp'].dt.time >= afternoon_start) & 
+                              (kpi_data['ForecastedTimestamp'].dt.time < afternoon_end)]
+    
+    # Find peak hours
+    morning_peak = morning_data.loc[morning_data['value'].idxmax()]
+    afternoon_peak = afternoon_data.loc[afternoon_data['value'].idxmax()]
+    
+    # Calculate peak hour ranges
+    morning_peak_start = (morning_peak['ForecastedTimestamp'] - timedelta(hours=1))
+    morning_peak_end = (morning_peak['ForecastedTimestamp'] + timedelta(hours=1))
+    afternoon_peak_start = (afternoon_peak['ForecastedTimestamp'] - timedelta(hours=1))
+    afternoon_peak_end = (afternoon_peak['ForecastedTimestamp'] + timedelta(hours=1))
+    
+    # Filter data for peak hours
+    morning_peak_data = kpi_data[(kpi_data['ForecastedTimestamp'] >= morning_peak_start) & 
+                                 (kpi_data['ForecastedTimestamp'] <= morning_peak_end)]
+    afternoon_peak_data = kpi_data[(kpi_data['ForecastedTimestamp'] >= afternoon_peak_start) & 
+                                   (kpi_data['ForecastedTimestamp'] <= afternoon_peak_end)]
+    
+    # Calculate metrics for peak hours
+    morning_peak_metrics = {
+        'avg_forecasted': morning_peak_data['overallResult.value'].mean(),
+        'avg_actual': morning_peak_data['value'].mean(),
+        'avg_error': morning_peak_data['ErrorPerc'].mean(),
+        'peak_range': f"{morning_peak_start.strftime('%H:%M')} - {morning_peak_end.strftime('%H:%M')}"
+    }
+    
+    afternoon_peak_metrics = {
+        'avg_forecasted': afternoon_peak_data['overallResult.value'].mean(),
+        'avg_actual': afternoon_peak_data['value'].mean(),
+        'avg_error': afternoon_peak_data['ErrorPerc'].mean(),
+        'peak_range': f"{afternoon_peak_start.strftime('%H:%M')} - {afternoon_peak_end.strftime('%H:%M')}"
+    }
+    
+    return overall_metrics, morning_peak_metrics, afternoon_peak_metrics
+
+
 def main():
     st.title("PTV FLOWS data analysis")
 
@@ -300,6 +358,39 @@ def main():
             # Dropdown to select KPI
             selected_kpi = st.selectbox("Select a KPI", kpi_names)
             
+            # Filter data for the selected KPI
+            kpi_data = st.session_state.comparison_data[st.session_state.comparison_data['name'] == selected_kpi]
+            
+            # Calculate metrics
+            overall_metrics, morning_peak_metrics, afternoon_peak_metrics = calculate_metrics(kpi_data)
+            
+            # Display overall metric indicators
+            st.subheader("Overall KPI Metrics")
+            st.write("The following metrics are calculated based on the entire available timeline:")
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Avg Forecasted Value", f"{overall_metrics['avg_forecasted']:.2f}")
+            col2.metric("Avg Actual Value", f"{overall_metrics['avg_actual']:.2f}")
+            col3.metric("Avg Error Percentage", f"{overall_metrics['avg_error']:.2f}%")
+            
+            # Display peak hour metric indicators
+            st.subheader("Peak Hour KPI Metrics")
+            st.write("Peak hours are defined as the 1-hour period before and after the maximum value in the morning and afternoon:")
+            
+            # Morning peak metrics
+            st.write(f"Morning Peak Hours: {morning_peak_metrics['peak_range']}")
+            col4, col5, col6 = st.columns(3)
+            col4.metric("Avg Forecasted Value", f"{morning_peak_metrics['avg_forecasted']:.2f}")
+            col5.metric("Avg Actual Value", f"{morning_peak_metrics['avg_actual']:.2f}")
+            col6.metric("Avg Error Percentage", f"{morning_peak_metrics['avg_error']:.2f}%")
+            
+            # Afternoon peak metrics
+            st.write(f"Afternoon Peak Hours: {afternoon_peak_metrics['peak_range']}")
+            col7, col8, col9 = st.columns(3)
+            col7.metric("Avg Forecasted Value", f"{afternoon_peak_metrics['avg_forecasted']:.2f}")
+            col8.metric("Avg Actual Value", f"{afternoon_peak_metrics['avg_actual']:.2f}")
+            col9.metric("Avg Error Percentage", f"{afternoon_peak_metrics['avg_error']:.2f}%")
+            
             # Create and display the KPI evolution chart
             fig_kpi = create_kpi_chart(st.session_state.comparison_data, selected_kpi)
             st.plotly_chart(fig_kpi)
@@ -310,7 +401,6 @@ def main():
             
             # Display the data table for the selected KPI
             st.subheader(f"Data for {selected_kpi}")
-            kpi_data = st.session_state.comparison_data[st.session_state.comparison_data['name'] == selected_kpi]
             st.dataframe(kpi_data)
         else:
             st.warning("Please fetch data first on the 'Data Fetch' page.")
