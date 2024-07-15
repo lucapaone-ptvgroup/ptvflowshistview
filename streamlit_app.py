@@ -178,6 +178,9 @@ def create_error_metrics_chart(comparison_data, kpi_name):
 
 
 def calculate_metrics(kpi_data):
+    # Create a copy of the dataframe to avoid SettingWithCopyWarning
+    kpi_data = kpi_data.copy()
+    
     # Convert 'ForecastedTimestamp' to datetime
     kpi_data['ForecastedTimestamp'] = pd.to_datetime(kpi_data['ForecastedTimestamp'])
     
@@ -195,41 +198,54 @@ def calculate_metrics(kpi_data):
     afternoon_end = datetime.strptime("20:00", "%H:%M").time()
     
     # Filter data for morning and afternoon
-    morning_data = kpi_data[(kpi_data['ForecastedTimestamp'].dt.time >= morning_start) & 
-                            (kpi_data['ForecastedTimestamp'].dt.time < morning_end)]
-    afternoon_data = kpi_data[(kpi_data['ForecastedTimestamp'].dt.time >= afternoon_start) & 
-                              (kpi_data['ForecastedTimestamp'].dt.time < afternoon_end)]
+    morning_mask = (kpi_data['ForecastedTimestamp'].dt.time >= morning_start) & (kpi_data['ForecastedTimestamp'].dt.time < morning_end)
+    afternoon_mask = (kpi_data['ForecastedTimestamp'].dt.time >= afternoon_start) & (kpi_data['ForecastedTimestamp'].dt.time < afternoon_end)
+    
+    morning_data = kpi_data.loc[morning_mask]
+    afternoon_data = kpi_data.loc[afternoon_mask]
     
     # Find peak hours
-    morning_peak = morning_data.loc[morning_data['value'].idxmax()]
-    afternoon_peak = afternoon_data.loc[afternoon_data['value'].idxmax()]
+    if not morning_data.empty:
+        morning_peak = morning_data.loc[morning_data['value'].idxmax()]
+        morning_peak_start = (morning_peak['ForecastedTimestamp'] - timedelta(hours=1))
+        morning_peak_end = (morning_peak['ForecastedTimestamp'] + timedelta(hours=1))
+        morning_peak_mask = (kpi_data['ForecastedTimestamp'] >= morning_peak_start) & (kpi_data['ForecastedTimestamp'] <= morning_peak_end)
+        morning_peak_data = kpi_data.loc[morning_peak_mask]
+        
+        morning_peak_metrics = {
+            'avg_forecasted': morning_peak_data['overallResult.value'].mean(),
+            'avg_actual': morning_peak_data['value'].mean(),
+            'avg_error': morning_peak_data['ErrorPerc'].mean(),
+            'peak_range': f"{morning_peak_start.strftime('%H:%M')} - {morning_peak_end.strftime('%H:%M')}"
+        }
+    else:
+        morning_peak_metrics = {
+            'avg_forecasted': None,
+            'avg_actual': None,
+            'avg_error': None,
+            'peak_range': "No morning data available"
+        }
     
-    # Calculate peak hour ranges
-    morning_peak_start = (morning_peak['ForecastedTimestamp'] - timedelta(hours=1))
-    morning_peak_end = (morning_peak['ForecastedTimestamp'] + timedelta(hours=1))
-    afternoon_peak_start = (afternoon_peak['ForecastedTimestamp'] - timedelta(hours=1))
-    afternoon_peak_end = (afternoon_peak['ForecastedTimestamp'] + timedelta(hours=1))
-    
-    # Filter data for peak hours
-    morning_peak_data = kpi_data[(kpi_data['ForecastedTimestamp'] >= morning_peak_start) & 
-                                 (kpi_data['ForecastedTimestamp'] <= morning_peak_end)]
-    afternoon_peak_data = kpi_data[(kpi_data['ForecastedTimestamp'] >= afternoon_peak_start) & 
-                                   (kpi_data['ForecastedTimestamp'] <= afternoon_peak_end)]
-    
-    # Calculate metrics for peak hours
-    morning_peak_metrics = {
-        'avg_forecasted': morning_peak_data['overallResult.value'].mean(),
-        'avg_actual': morning_peak_data['value'].mean(),
-        'avg_error': morning_peak_data['ErrorPerc'].mean(),
-        'peak_range': f"{morning_peak_start.strftime('%H:%M')} - {morning_peak_end.strftime('%H:%M')}"
-    }
-    
-    afternoon_peak_metrics = {
-        'avg_forecasted': afternoon_peak_data['overallResult.value'].mean(),
-        'avg_actual': afternoon_peak_data['value'].mean(),
-        'avg_error': afternoon_peak_data['ErrorPerc'].mean(),
-        'peak_range': f"{afternoon_peak_start.strftime('%H:%M')} - {afternoon_peak_end.strftime('%H:%M')}"
-    }
+    if not afternoon_data.empty:
+        afternoon_peak = afternoon_data.loc[afternoon_data['value'].idxmax()]
+        afternoon_peak_start = (afternoon_peak['ForecastedTimestamp'] - timedelta(hours=1))
+        afternoon_peak_end = (afternoon_peak['ForecastedTimestamp'] + timedelta(hours=1))
+        afternoon_peak_mask = (kpi_data['ForecastedTimestamp'] >= afternoon_peak_start) & (kpi_data['ForecastedTimestamp'] <= afternoon_peak_end)
+        afternoon_peak_data = kpi_data.loc[afternoon_peak_mask]
+        
+        afternoon_peak_metrics = {
+            'avg_forecasted': afternoon_peak_data['overallResult.value'].mean(),
+            'avg_actual': afternoon_peak_data['value'].mean(),
+            'avg_error': afternoon_peak_data['ErrorPerc'].mean(),
+            'peak_range': f"{afternoon_peak_start.strftime('%H:%M')} - {afternoon_peak_end.strftime('%H:%M')}"
+        }
+    else:
+        afternoon_peak_metrics = {
+            'avg_forecasted': None,
+            'avg_actual': None,
+            'avg_error': None,
+            'peak_range': "No afternoon data available"
+        }
     
     return overall_metrics, morning_peak_metrics, afternoon_peak_metrics
 
