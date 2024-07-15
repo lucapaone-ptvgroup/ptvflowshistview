@@ -3,31 +3,39 @@ import pandas as pd
 import requests
 import logging
 from datetime import datetime, timedelta
+
 # Enable logging
 logging.basicConfig(level=logging.DEBUG)
-API_KEY = "put here your API key"
+
 # Define the base URLs for the different API endpoints
 BASEURL = "api.myptv.com"
 KPI_ENG_URL = f"https://{BASEURL}/kpieng/v1/instance/all"
 KPI_HISTORICAL_URL = f"https://{BASEURL}/kpistats/v1/historical/result/by-kpi-id"
 KPI_24HOURS_URL = f"https://{BASEURL}/kpieng/v1/result/by-kpi-id"
+
+# Initialize session state for API key
+if 'api_key' not in st.session_state:
+    st.session_state.api_key = ""
+
 # Define headers for the API requests
-HEADERS = {
-    "apiKey": API_KEY,
-    "Accept": "*/*",
-    "Connection": "keep-alive"
-}
+def get_headers():
+    return {
+        "apiKey": st.session_state.api_key,
+        "Accept": "*/*",
+        "Connection": "keep-alive"
+    }
+
 def extract_timetostart(param_dict):
     try:
         return param_dict.get('parameters', {}).get('timetostart', None)
     except AttributeError:
         return None
+
 # Fetch all KPI definitions
-def fetch_all_kpis(api_key):
+def fetch_all_kpis():
     try:
         print("Fetching all KPI definitions...")
-        HEADERS["apiKey"] = api_key
-        response = requests.get(KPI_ENG_URL, headers=HEADERS)
+        response = requests.get(KPI_ENG_URL, headers=get_headers())
         response.raise_for_status()  # Raise an exception if the response status code is not 200
         kpi_data = response.json()
         kpi_df = pd.DataFrame(kpi_data)
@@ -38,11 +46,12 @@ def fetch_all_kpis(api_key):
     except requests.RequestException as e:
         st.error(f"Error fetching data: {e}")
         return None
+
 # Fetch last 24 hours data for a specific KPI
 def fetch_last_24_hours_data(kpi_id):
     print(f"Fetching last 24 hours data for KPI: {kpi_id}")
     url = f"{KPI_24HOURS_URL}?kpiId={kpi_id}"
-    response = requests.get(url, headers=HEADERS)
+    response = requests.get(url, headers=get_headers())
     if response.status_code == 200:
         data = response.json()
         df = pd.json_normalize(data)
@@ -54,11 +63,12 @@ def fetch_last_24_hours_data(kpi_id):
     else:
         print(f"Failed to fetch data for KPI: {kpi_id}, Status Code: {response.status_code}, Response: {response.text}")
     return pd.DataFrame()
+
 # Fetch historical stats for a specific KPI
 def fetch_historical_stats(kpi_id):
     print(f"Fetching historical stats for KPI: {kpi_id}")
     url = f"{KPI_HISTORICAL_URL}?kpiId={kpi_id}"
-    response = requests.get(url, headers=HEADERS)
+    response = requests.get(url, headers=get_headers())
     if response.status_code == 200:
         data = response.json()
         historical_data = []
@@ -76,25 +86,33 @@ def fetch_historical_stats(kpi_id):
     else:
         print(f"Failed to fetch historical stats for KPI: {kpi_id}, Status Code: {response.status_code}, Response: {response.text}")
     return pd.DataFrame()
+
 # Round datetime to the nearest 5-minute bucket
 def round_to_nearest_5min(timestamp):
     dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
     new_minute = (dt.minute // 5) * 5
     return dt.replace(minute=new_minute, second=0, microsecond=0)
+
 def main():
     data = None
     st.title("PTV FLOWS data analysis")
-    # Text input for API key
-    api_key_input = st.text_input("Enter your API key:")
+
+    # Text input for API key with session state
+    api_key_input = st.text_input("Enter your API key:", value=st.session_state.api_key)
+    
+    # Update session state if API key changed
+    if api_key_input != st.session_state.api_key:
+        st.session_state.api_key = api_key_input
+
     fetch_KPIdef_button = st.button("Fetch KPI definitions and last data")
     loading_txt = st.empty()
     loading_txt.text("...")
+
     # Button to fetch data
     if fetch_KPIdef_button:
-        if api_key_input:
+        if st.session_state.api_key:
             # Fetch data from the API
-            API_KEY = api_key_input
-            kpi_ids_df = fetch_all_kpis(api_key_input)
+            kpi_ids_df = fetch_all_kpis()
             if kpi_ids_df is not None:
                 # Display the data in a table
                 st.dataframe(kpi_ids_df)
@@ -122,7 +140,7 @@ def main():
                 print("Last 24 hours data head:")
                 print(last_24_hours_data.head())      
                 # Display additional data tables
-                st.write("Last 24 Hours Data:")
+                st.write("Last 24 Hours of KPI values:")
                 st.dataframe(last_24_hours_data)
                 historical_stats_data = pd.DataFrame()
                 for kpi_id in kpi_ids:
@@ -131,7 +149,7 @@ def main():
                     if(data is not None):
                         historical_stats_data = pd.concat([historical_stats_data, data], ignore_index=True)
                 
-                st.write("Historical Stats Data:")
+                st.write("Last 23 hours of KPI RECORDED values :")
                 st.dataframe(historical_stats_data)
                 # Group historical data and create groupedHistoricalData
                 groupedHistoricalData = historical_stats_data.groupby(
@@ -147,7 +165,7 @@ def main():
                     }
                 ).reset_index()
 
-                st.write("Grouped Historical Stats Data:")
+                st.write("Historical Stats Data grouped by kpiId, RoundedTimeStamp:")
                 st.dataframe(groupedHistoricalData)
                 loading_txt.empty()  # Remove the loading text
                 
@@ -169,7 +187,7 @@ def main():
                     comparison = pd.merge(comparison, kpi_ids_df[['kpiId', 'name']], on='kpiId', how='left')
                     print("Comparison Results:")
                     print(comparison.head())
-                    st.write("Comparison Results:")
+                    st.write("Comparison Results x = Forecasted KPI values y = Recorded KPI value:")
                     st.dataframe(comparison)
                 else:
                     warning = "No data available for comparison" 
@@ -177,5 +195,6 @@ def main():
                     st.warning(warning)
         else:
             st.warning("Please enter an API key.")
+
 if __name__ == "__main__":
     main()
