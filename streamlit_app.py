@@ -331,9 +331,6 @@ def main():
                         }
                     )
 
-                    # Debugging: Check intermediate result
-                    st.write("Intermediate Grouped Data:")
-                    st.dataframe(intermediateGroupedData)
 
                     # Rename columns to match the original names
                     intermediateGroupedData = intermediateGroupedData.rename(columns={
