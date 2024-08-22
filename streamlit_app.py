@@ -331,6 +331,16 @@ def main():
                         }
                     )
 
+                    # Rename columns to match the original names
+                    intermediateGroupedData = intermediateGroupedData.rename(columns={
+                        'defaultValue': 'defaultValue',
+                        'value': 'value',
+                        'averageValue': 'averageValue',
+                        'unusualValue': 'unusualValue',
+                        'progressive': 'progressive',
+                        'timeStamp': 'timeStamp'
+                    })
+
                     # Step 2: Second grouping
                     groupedHistoricalData = intermediateGroupedData.groupby(
                         ['kpiId', 'RoundedTimeStamp']
