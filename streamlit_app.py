@@ -314,16 +314,16 @@ def main():
                             historical_stats_data = pd.concat([historical_stats_data, data], ignore_index=True)
                     
                     # Group historical data and create groupedHistoricalData
-
                     # Step 1: First grouping
                     intermediateGroupedData = historical_stats_data.groupby(
                         ['kpiId', 'RoundedTimeStamp', 'progressive']
                     ).agg(
                         {
-                            'defaultValue': 'avg',
-                            'value': 'avg',
-                            'averageValue': 'avg',
-                            'unusualValue': 'avg',
+                            'defaultValue': 'mean',
+                            'value': 'mean',
+                            'averageValue': 'mean',
+                            'unusualValue': 'mean',
+                            'progressive': 'max',
                             'timeStamp': 'max'
                         }
                     ).reset_index()
@@ -341,6 +341,7 @@ def main():
                             'timeStamp': 'max'
                         }
                     ).reset_index()
+                    
                     st.write("Historical Stats Data grouped by 'kpiId', 'RoundedTimeStamp' and averaged on 5 minutes")
                     st.dataframe(groupedHistoricalData)
                     loading_txt.empty()  # Remove the loading text
